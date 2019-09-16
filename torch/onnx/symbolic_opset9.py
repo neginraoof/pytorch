@@ -978,6 +978,16 @@ def selu(g, input):
     return g.op("Selu", input)
 
 
+def try_mask_to_index(g, index, scalareType):
+    if not index.node().mustBeNone() and index.type().scalarType() == scalareType:
+        warnings.warn("Exporting aten::index operator with indices of type {}."
+                      " Only 1-D indices are supported. In any other case, "
+                      "this will produce an incorrect ONNX graph.".format(scalareType))
+        return g.op("Squeeze", nonzero(g, index), axes_i=[1])
+    else:
+        return index
+
+
 @parse_args('v', 'i', 'v')
 def index_select(g, self, dim, index):
     # In case of a scalar index, index_select returns a tensor with the same rank as the input.
@@ -993,6 +1003,7 @@ def index_select(g, self, dim, index):
         if index_dim == 0:
             # Index is a scalar. Reshape it to a size 1 tensor. 
             index = g.op("Reshape", index, g.op("Constant", value_t=torch.LongTensor([1])))
+    index = try_mask_to_index(g, index, "Bool")
     return g.op("Gather", self, index, axis_i=dim)
 
 
@@ -1800,15 +1811,7 @@ def index(g, self, index):
     else:
         indices = [index]
 
-    def try_mask_to_index(index):
-        if not index.node().mustBeNone() and index.type().scalarType() == "Byte":
-            warnings.warn("Exporting aten::index operator with indices of type Byte. "
-                          "Only 1-D indices are supported. In any other case, "
-                          "this will produce an incorrect ONNX graph.")
-            index = squeeze(g, nonzero(g, index), dim=1)
-        return index
-
-    indices = [try_mask_to_index(idx) for idx in indices]
+    indices = [try_mask_to_index(g, idx, "Byte") for idx in indices]
     if len(indices) == 1:
         return index_select(g, self, 0, indices[0])
     else:

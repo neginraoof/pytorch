@@ -36,6 +36,7 @@ def run_model_test(self, model, batch_size=2, state_dict=None,
 
         # export the model to ONNX
         f = io.BytesIO()
+        import os
         torch.onnx.export(model, input, f,
                           opset_version=self.opset_version,
                           example_outputs=output,
@@ -416,6 +417,16 @@ class TestONNXRuntime(unittest.TestCase):
         index_offset = torch.tensor(offset)
         base = 1
         self.run_test(IndexSelectScalerIndexModel(base), (x, index_offset))
+
+    def test_index_select_bool(self):
+        class ConstModel(torch.nn.Module):
+            def forward(self, input, other):
+                idx = input > 0.5
+                return other[idx]
+
+        x = torch.randn(15)
+        y = torch.randn(15)
+        self.run_test(ConstModel(), (x, y))
 
     # TODO: enable for opset 10 when ONNXRuntime version will be updated
     @skipIfUnsupportedOpsetVersion([10, 11])

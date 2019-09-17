@@ -584,6 +584,16 @@ class TestONNXRuntime(unittest.TestCase):
         x = torch.ones(5, 6)
         self.run_test(DimArange(), x)
 
+    def test_slice_trc(self):
+        class DimArange(torch.nn.Module):
+            def forward(self, input):
+                return input[:input.size(1)]
+        
+        x = torch.randn(5, 4, 6)
+        trace = torch.jit.trace(DimArange(), x)
+        print(trace.graph)
+        self.run_test(DimArange(), x)
+
     def test_gt(self):
         class GreaterModel(torch.nn.Module):
             def forward(self, input, other):

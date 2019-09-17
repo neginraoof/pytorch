@@ -4,6 +4,7 @@
 #include <torch/csrc/Exceptions.h>
 #include <torch/csrc/THP_export.h>
 #include <torch/csrc/autograd/function.h>
+#include "torch/csrc/utils/python_arg_parser.h"
 #include <torch/csrc/autograd/python_variable.h>
 #include <torch/csrc/autograd/utils/wrap_outputs.h>
 #include <torch/csrc/autograd/variable.h>
@@ -281,20 +282,28 @@ static THPObjectPtr wrapTuple(PyObject* index) {
   return res;
 }
 
-PyObject* THPVariable_getitem(PyObject* self, PyObject* index) {
+PyObject * THPVariable_getitem(PyObject* self, PyObject* index) 
+{
   HANDLE_TH_ERRORS
+  static PythonArgParser parser({
+    "getitem(PyObject* index)"
+  });
+  ParsedArgs<1> parsed_args;
+  std::cout<< "indeeex" << index;
+  auto r = parser.parse(index, NULL, parsed_args);
+  PyObject* ind = r.pyobject(0);
   auto& self_ = reinterpret_cast<THPVariable*>(self)->cdata;
   OptionalDeviceGuard device_guard(device_of(self_));
 
   // handle simple types: integers, slices, ellipsis
-  if (index == Py_None) {
+  if (ind == Py_None) {
     return wrap(self_.unsqueeze(0));
-  } else if (index == Py_Ellipsis) {
+  } else if (ind == Py_Ellipsis) {
     return wrap(at::alias(self_));
-  } else if (THPUtils_checkLong(index)) {
-    return wrap(applySelect(self_, 0, THPUtils_unpackLong(index)));
-  } else if (PySlice_Check(index)) {
-    return wrap(applySlice(self_, 0, index, true));
+  } else if (THPUtils_checkLong(ind)) {
+    return wrap(applySelect(self_, 0, THPUtils_unpackLong(ind)));
+  } else if (PySlice_Check(ind)) {
+    return wrap(applySlice(self_, 0, ind, true));
   }
 
   // wrap index in a tuple if it's not already one

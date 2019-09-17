@@ -480,7 +480,7 @@ static void extra_kwargs(FunctionSignature& signature, PyObject* kwargs, ssize_t
 
 bool FunctionSignature::parse(PyObject* args, PyObject* kwargs, PyObject* dst[],
                               bool raise_exception) {
-  auto nargs = PyTuple_GET_SIZE(args);
+  auto nargs = 1;
   ssize_t remaining_kwargs = kwargs ? PyDict_Size(kwargs) : 0;
   ssize_t arg_pos = 0;
   bool allow_varargs_intlist = false;

@@ -77,8 +77,8 @@ def _parse_arg(value, desc):
         if desc == 'is':
             for v in value.node().inputs():
                 if v.node().kind() != 'onnx::Constant':
-                    raise RuntimeError("Failed to export an ONNX attribute, "
-                                       "since it's not constant, please try to make "
+                    raise RuntimeError("Failed to export an ONNX attribute '" + v.node().kind() +
+                                       "', since it's not constant, please try to make "
                                        "things (e.g., kernel size) static if possible")
             return [int(v.node()['value']) for v in value.node().inputs()]
         else:
@@ -203,8 +203,10 @@ def _slice_helper(g, input, axes, starts, ends, steps=None, dynamic_slice=False)
 
 
 def _is_fp(value):
-    type = value.type().scalarType()
-    return (type == 'Float') or (type == 'Double') or (type == 'Half')
+    if value:
+        type = value.type().scalarType()
+        return (type == 'Float') or (type == 'Double') or (type == 'Half')
+    return False
 
 
 def _sort_helper(g, input, dim, decending=True, out=None):
@@ -226,15 +228,13 @@ def _sort_helper(g, input, dim, decending=True, out=None):
 def _topk_helper(g, input, k, dim, largest=True, sorted=False, out=None):
     if out is not None:
         _unimplemented("TopK", "Out parameter is not supported")
+    if not _is_value(k):
+        k = g.op("Constant", value_t=torch.tensor([k], dtype=torch.int64))
+    else:
+        k = g.op("Reshape", k, g.op("Constant", value_t=torch.tensor([1])))
     if _export_onnx_opset_version <= 10:
         if not largest:
             _unimplemented("TopK", "Ascending is not supported")
-            return g.op("TopK", input, k_i=k, axis_i=dim, outputs=2)
-        k = _maybe_get_const(k, 'i')
-        if not _is_value(k):
-            k = g.op("Constant", value_t=torch.tensor(k, dtype=torch.int64))
-        from torch.onnx.symbolic_opset9 import unsqueeze
-        k = unsqueeze(g, k, 0)
         return g.op("TopK", input, k, axis_i=dim, outputs=2)
     else:
         return g.op("TopK", input, k, axis_i=dim, largest_i=largest, sorted_i=sorted, outputs=2)
@@ -291,6 +291,10 @@ def _interpolate_get_scales(g, scale_factor, dim):
 def _interpolate_get_scales_and_mode(g, input, size, scale_factor, mode , align_corners):
     from torch.onnx.symbolic_opset9 import unsqueeze
     mode = _maybe_get_const(mode, 's')
+    if 'linear' in mode:
+        mode = 'linear'
+    if 'cubic' in mode:
+        mode = 'cubic'
     _interpolate_warning(mode)
 
     align_corners = _maybe_get_const(align_corners, 'b')
@@ -322,6 +326,22 @@ def _scatter_helper(g, self, dim, index, src):
     return scatter(g, self, dim, index, src)
 
 
+def _arange_cast_helper(g, end, start=None, step=None, dtype=None):
+    # This logic is based on torch.arange docs. If 'dtype' is provided,
+    # infer input types from dtype. If not, then check if any of start, stop,
+    # or step are floating point, and infer the type from get_default.
+    # Otherwise, the dtype is inferred to be torch.int64.
+    if _is_value(dtype) and _is_none(dtype):
+        type = scalar_type_to_pytorch_type.index(torch.get_default_dtype())
+    else:
+        type = dtype
+
+    start = g.op("Cast", start, to_i=scalar_type_to_onnx[type]) if start else None
+    end = g.op("Cast", end, to_i=scalar_type_to_onnx[type]) if end else None
+    step = g.op("Cast", step, to_i=scalar_type_to_onnx[type]) if step else None
+    return type, end, start, step
+
+
 def _size_helper(g, self, dim):
     full_shape = g.op("Shape", self)
     from torch.onnx.symbolic_opset9 import select
@@ -349,6 +369,15 @@ def _index_fill_reshape_helper(g, self, dim, index):
                                    g.op("Unsqueeze", dim, axes_i=[0]), g.op("Shape", index))
     expanded_index = expand(g, unsqueezed_index, expanded_index_shape, None)
     return expanded_index_shape, expanded_index
+
+
+def _avgpool_helper(tuple_fn, padding, kernel_size, stride, divisor_override, name):
+    if divisor_override and divisor_override.node().kind() != 'prim::Constant':
+        return _unimplemented(name, "divisor_override")
+    if not stride:
+        stride = kernel_size
+    padding = tuple(tuple_fn(padding))
+    return padding
 
 # ---------------------------------------------------------------------
 # ONNX operator version

@@ -358,10 +358,21 @@ def _create_jit_graph(model, args, _retain_param_name, use_new_jit_passes):
             if not use_new_jit_passes:
                 method_graph, params = torch._C._jit_pass_lower_graph(graph, model._c)
             else:
+
                 freezed_m = torch._C._freeze_module(model._c)
                 method_graph = freezed_m._get_method('forward').graph
-                method_graph.eraseInput(0)  # Remove 'self' from model inputs
                 params = []
+
+                # torch._C._jit_pass_remove_mutation(method_graph)
+                # torch._C._jit_pass_lower_all_tuples(method_graph)
+                # torch._C._jit_pass_onnx_remove_inplace_ops_for_onnx(method_graph)
+                # torch._C._jit_pass_dce(method_graph)
+                # method_graph.dump_alias_db()
+
+                # method_graph, params = torch._C._jit_pass_lower_graph(graph, model._c)
+                print(method_graph)
+                method_graph.eraseInput(0)  # Remove 'self' from model inputs
+                # print(len(params), len(list(method_graph.inputs())))
 
             in_vars, in_desc = torch.jit._flatten(tuple(args) + tuple(params))
             graph = _propagate_and_assign_input_shapes(

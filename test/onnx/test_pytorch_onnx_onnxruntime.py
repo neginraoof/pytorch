@@ -55,6 +55,13 @@ def run_ort(ort_sess, input):
     input, _ = torch.jit._flatten(input_copy)
     inputs = [to_numpy(inp) for inp in input]
 
+    for i, ort_in in enumerate(ort_sess.get_inputs()):
+        if ("seq" in ort_in.type):
+            if i < len(inputs):
+                inputs[i] = [inputs[i]]
+            else:
+                inputs += [list()]
+
     ort_inputs = dict((ort_sess.get_inputs()[i].name, input) for i, input in enumerate(inputs))
     ort_outs = ort_sess.run(None, ort_inputs)
 
@@ -570,6 +577,52 @@ class TestONNXRuntime(unittest.TestCase):
         # With optional arguments dictionary
         self.run_test(AllOptionalModel(), {'y': y, 'z': None}, input_names=['input_y'])
         self.run_test(AllOptionalModel(), {'y': None, 'z': z}, input_names=['input_z'])
+
+    def test_none_as_input_a(self):
+        from typing import Optional
+        from torch import Tensor
+
+        class Model(torch.nn.Module):
+            def forward(self, x, y:Optional[Tensor]=None):
+                z:Optional[Tensor] = torch.randn(2, 3)
+
+                if y is not None:
+                    z = y
+                    x = x + y
+                if z is not None:
+                    return x + z
+                return x
+
+        x = torch.randn(2, 3)
+        y = torch.randn(2, 3)
+        self.run_test(Model(), (x, y))
+
+    def test_none_as_input_b(self):
+        from typing import Optional
+        from torch import Tensor
+
+        class Model(torch.nn.Module):
+            def forward(self, x, y:Optional[Tensor]=torch.randn(2, 3)):
+                if y is not None:
+                    return x + y
+                return x
+
+        x = torch.tensor([[1, 2, 3], [4, 5, 6]])
+        self.run_test(Model(), (x,))
+        # self.run_test(Model(), (x, None))
+
+    def test_none_as_input_c(self):
+        from typing import Optional
+        from torch import Tensor
+
+        class Model(torch.nn.Module):
+            def forward(self, x, y:Optional[Tensor]=None):
+                if y is not None:
+                    return x + y
+                return x
+
+        x = torch.randn(2, 3)
+        self.run_test(Model(), (x))  # self.run_test(Model(), (x, None))
 
     @disableScriptTest()
     def test_none_as_input(self):

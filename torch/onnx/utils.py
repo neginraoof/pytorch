@@ -124,40 +124,39 @@ def _split_tensor_list_constants(g, block):
 def _optimize_graph(graph, operator_export_type, _disable_torch_constant_prop=False, fixed_batch_size=False,
                     params_dict=None, use_new_jit_passes=True, dynamic_axes=None, input_names=None):
     # Inline everything
+
     torch._C._jit_pass_inline(graph)
 
     # Remove fork/wait nodes
     torch._C._jit_pass_inline_fork_wait(graph)
     torch._C._jit_pass_lint(graph)
-
-    if use_new_jit_passes:
-        torch._C._jit_pass_lower_all_tuples(graph)
-        torch._C._jit_pass_onnx_remove_inplace_ops_for_onnx(graph)
-    else:
-        torch._C._jit_pass_remove_inplace_ops(graph)
+    #
+    # if use_new_jit_passes:
+    #     torch._C._jit_pass_lower_all_tuples(graph)
+    #     torch._C._jit_pass_onnx_remove_inplace_ops_for_onnx(graph)
+    # else:
+    #     torch._C._jit_pass_remove_inplace_ops(graph)
 
     # we record now record some ops like ones/zeros
     # into a trace where we previously recorded constants
     # use constant prop to maintain our current level of onnx support
     # without implementing symbolics for all of them
-    if _disable_torch_constant_prop is False:
-        torch._C._jit_pass_constant_propagation(graph)
-    _split_tensor_list_constants(graph, graph)
+    # if _disable_torch_constant_prop is False:
+    #     torch._C._jit_pass_constant_propagation(graph)
+    # _split_tensor_list_constants(graph, graph)
     # run dce to eliminate dead parts of the graph that might have been
     # left behind by things like symbolic_override
-    torch._C._jit_pass_dce(graph)
-    torch._C._jit_pass_lint(graph)
+    # torch._C._jit_pass_dce(graph)
+    # torch._C._jit_pass_lint(graph)
 
     torch._C._jit_pass_canonicalize_graph_fuser_ops(graph)
     torch._C._jit_pass_lint(graph)
-
-    torch._C._jit_pass_peephole(graph, True)
+    # torch._C._jit_pass_peephole(graph, True)
     torch._C._jit_pass_fuse_addmm(graph)
     torch._C._jit_pass_lint(graph)
-
     if operator_export_type != OperatorExportTypes.RAW:
-        torch._C._jit_pass_peephole(graph, True)
-        torch._C._jit_pass_lower_all_tuples(graph)
+        # torch._C._jit_pass_peephole(graph, True)
+        # torch._C._jit_pass_lower_all_tuples(graph)
         # in _jit_pass_onnx, symbolic functions are called for each node for conversion.
         # However, there are nodes that cannot be converted without additional context.
         # For example, the number of outputs from split (and whether it is static or dynamic) is unknown
@@ -175,6 +174,7 @@ def _optimize_graph(graph, operator_export_type, _disable_torch_constant_prop=Fa
         torch._C._jit_pass_prepare_division_for_onnx(graph)
 
         torch._C._jit_pass_onnx_remove_print(graph)
+
         torch._C._jit_pass_onnx_preprocess_caffe2(graph)
 
         if operator_export_type == OperatorExportTypes.ONNX_ATEN_FALLBACK:
@@ -201,7 +201,9 @@ def _optimize_graph(graph, operator_export_type, _disable_torch_constant_prop=Fa
             input_names = [] if input_names is None else input_names
             dynamic_axes = {} if dynamic_axes is None else dynamic_axes
             torch._C._jit_pass_onnx_set_dynamic_input_shape(graph, dynamic_axes, input_names)
+
         graph = torch._C._jit_pass_onnx(graph, operator_export_type)
+
         torch._C._jit_pass_lint(graph)
 
         torch._C._jit_pass_onnx_scalar_type_analysis(graph)
@@ -223,6 +225,7 @@ def _optimize_graph(graph, operator_export_type, _disable_torch_constant_prop=Fa
     from torch.onnx.symbolic_helper import _onnx_shape_inference, _export_onnx_opset_version
     if _onnx_shape_inference:
         torch._C._jit_pass_onnx_graph_shape_type_inference(graph, _export_onnx_opset_version)
+    print(graph)
     return graph
 
 
@@ -347,6 +350,7 @@ def _decide_input_format(model, args):
         warnings.warn("No input args")
         return args
 
+
 def _trace(func, args, operator_export_type, return_outs=False):
     # Special case for common case of passing a single Tensor
     if isinstance(args, torch.Tensor):
@@ -385,6 +389,7 @@ def _create_jit_graph(model, args, _retain_param_name, use_new_jit_passes):
     if isinstance(model, torch.jit.ScriptModule):
         try:
             graph = model.forward.graph
+            print(graph)
             torch._C._jit_pass_onnx_function_substitution(graph)
             if not use_new_jit_passes:
                 method_graph, params = torch._C._jit_pass_lower_graph(graph, model._c)
@@ -395,8 +400,14 @@ def _create_jit_graph(model, args, _retain_param_name, use_new_jit_passes):
                 method_graph.eraseInput(0)  # Remove 'self' from model inputs
 
             in_vars, in_desc = torch.jit._flatten(tuple(args) + tuple(params))
+            import inspect
+            sig = inspect.signature(model.forward)
+
+            none_default = [v.default if v.default is not inspect.Parameter.empty else None
+                            for k, v in sig.parameters.items()]
+
             graph = _propagate_and_assign_input_shapes(
-                method_graph, tuple(in_vars), False, False)
+                method_graph, tuple(in_vars), False, False, none_default)
         except AttributeError as e:
             raise RuntimeError('\'forward\' method must be a script method') from e
     elif isinstance(model, torch.jit.ScriptFunction):
@@ -418,6 +429,7 @@ def _create_jit_graph(model, args, _retain_param_name, use_new_jit_passes):
                 if i >= user_input_num:
                     inp.setDebugName(param_names[i - user_input_num])
         torch._C._jit_pass_onnx_function_substitution(graph)
+
     return graph, params, torch_out
 
 
@@ -450,10 +462,13 @@ def _model_to_graph(model, args, verbose=False,
                             fixed_batch_size=fixed_batch_size, params_dict=params_dict,
                             use_new_jit_passes=use_new_jit_passes,
                             dynamic_axes=dynamic_axes, input_names=input_names)
+
+
     from torch.onnx.symbolic_helper import _onnx_shape_inference
     if isinstance(model, torch.jit.ScriptModule) or isinstance(model, torch.jit.ScriptFunction):
         assert example_outputs is not None, "example_outputs must be provided when exporting a ScriptModule or " \
                                             "ScriptFunction."
+
         out_vars, _ = torch.jit._flatten(tuple(example_outputs))
         torch._C._jit_pass_onnx_assign_output_shape(graph, out_vars, _onnx_shape_inference)
 
@@ -467,7 +482,7 @@ def _model_to_graph(model, args, verbose=False,
 
     # make sure that the param dict and the graph match each other
     flatten_args, _ = torch._C._jit_flatten(args)
-    assert len(params) + len(flatten_args) == sum(1 for _ in graph.inputs())
+    # assert len(params) + len(flatten_args) == sum(1 for _ in graph.inputs())
 
     input_and_param_names = [val.debugName() for val in graph.inputs()]
     param_names = input_and_param_names[len(input_and_param_names) - len(params):]

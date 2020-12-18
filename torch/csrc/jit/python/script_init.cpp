@@ -441,10 +441,30 @@ static TupleTypePtr getTupleTensorType(
   return TupleType::create(types);
 }
 
-static void setInputTensorTypes(Graph& g, const Stack& stack, bool complete) {
+static void setInputTensorTypes(Graph& g, const Stack& stack, bool complete, std::vector<optional<at::Tensor>>* noneDefault=nullptr) {
   at::ArrayRef<Value*> input_values = g.inputs();
   auto s_iter = stack.begin();
+  size_t default_index = 0;
   for (auto v : input_values) {
+    auto b = s_iter == stack.end();
+    auto c = v->type()->cast<OptionalType>();
+    if (s_iter == stack.end()) {
+      if (noneDefault->at(default_index).has_value()) {
+        auto tensor_t = noneDefault->at(default_index).value_or(Tensor());
+	      auto v_type = TensorType::create(tensor_t);
+	      v->setType(ListType::create(v_type));
+      } //else {
+				// Not supported
+      //}
+      default_index ++;
+      continue;
+	  } else if (v->type()->cast<OptionalType>()) {
+	    v->setType(ListType::create(getTensorType(s_iter->toTensor(), complete)));
+      s_iter++;
+      default_index ++;
+      continue;
+	  }
+	  default_index ++;
     AT_ASSERT(s_iter != stack.end());
     // Leave packed param types alone. This is needed for downstream passes
     // (like alias analysis) to work properly. This will be unpacked later
@@ -480,11 +500,12 @@ static std::shared_ptr<Graph> _propagate_shapes(
 
 static std::shared_ptr<Graph> _propagate_and_assign_input_shapes(
     Graph& graph,
-    const std::vector<at::Tensor>& inputs,
+    const std::vector<optional<at::Tensor>>& inputs,
     bool with_grad = false,
-    bool propagate = true) {
+    bool propagate = true,
+    std::vector<optional<at::Tensor>>* noneDefault = nullptr) {
   auto retval = graph.copy();
-  setInputTensorTypes(*retval, fmap<IValue>(inputs), /*complete=*/true);
+  setInputTensorTypes(*retval, fmap<IValue>(inputs), /*complete=*/true, noneDefault);
   if (propagate) {
     PropagateInputShapes(retval);
   }

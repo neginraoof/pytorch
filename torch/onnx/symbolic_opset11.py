@@ -967,3 +967,17 @@ def prim_ConstantChunk(g, self, chunks, dim):
         res.append(g.op("Slice", self, start, end, axis))
         start = end
     return res
+
+
+def __isnot_(g, self, other):
+    if sym_help._is_none(other):
+        # Other is None, so return "self is not None". Equivalent to sequence is not empty.
+        len_ = g.op("SequenceLength", self)
+        eq = g.op("Equal", len_, g.op("Constant", value_t=torch.tensor([0], dtype=torch.long)))
+        return g.op("Not", eq)
+    else:
+        return g.op("Equal", self, other)
+
+
+def prim_unchecked_cast(g, self):
+    return g.op("SequenceAt", self, g.op("Constant", value_t=torch.tensor([0], dtype=torch.long)))

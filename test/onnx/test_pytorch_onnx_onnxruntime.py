@@ -108,6 +108,8 @@ def run_model_test(self, model, batch_size=2, state_dict=None,
 
         ort_outs = run_ort(ort_sess, input)
         ort_compare_with_pytorch(ort_outs, output, rtol, atol)
+        print("self.opset_version: ", self.opset_version)
+        # print("Ort_result: \n", "ort_outs: ", ort_outs, "\noutput:", output, rtol, atol)
 
 
         # if additional test inputs are provided run the onnx
@@ -127,6 +129,7 @@ def run_model_test(self, model, batch_size=2, state_dict=None,
 class TestONNXRuntime(unittest.TestCase):
     from torch.onnx.symbolic_helper import _export_onnx_opset_version
     opset_version = _export_onnx_opset_version
+    opset_version = 13
     keep_initializers_as_inputs = True  # For IR version 3 type export.
     use_new_jit_passes = False  # For testing main code-path
     onnx_shape_inference = True
@@ -2882,7 +2885,6 @@ class TestONNXRuntime(unittest.TestCase):
             self.run_test(model, input, batch_size=RNN_BATCH_SIZE)
 
     @skipIfUnsupportedOpsetVersion([13])
-    @skipIfUnsupportedOpsetVersion([13])
     def test_gru_no_bias(self):
         class GruNet(torch.nn.Module):
             def __init__(self, input_size, hidden_size, num_layers, bidirectional):
@@ -2912,7 +2914,6 @@ class TestONNXRuntime(unittest.TestCase):
         for model, input in models_and_inputs:
             self.run_test(model, input, do_constant_folding=True)
 
-    @skipIfUnsupportedOpsetVersion([13])
     @skipIfUnsupportedOpsetVersion([13])
     def test_gru_constant_folding(self):
         class GruNet(torch.nn.Module):
@@ -4619,7 +4620,6 @@ class TestONNXRuntime(unittest.TestCase):
         x = torch.randn(3, 4)
         self.run_test(EinsumModelTranspose(), input=(x,))
 
-    @skipIfUnsupportedOpsetVersion([13])
     @skipIfUnsupportedMinOpsetVersion(12)
     @disableScriptTest()  # shape/type inference
     def test_crossentropyloss(self):
@@ -4627,7 +4627,6 @@ class TestONNXRuntime(unittest.TestCase):
             x = torch.randn(3, 5)
             y = torch.empty(3, dtype=torch.long).random_(5)
             y[y == 1] = ignore_index
-
             self._crossentropyloss(x, y, ignore_index)
 
             x = torch.randn(3, 5, 2)
@@ -4636,6 +4635,25 @@ class TestONNXRuntime(unittest.TestCase):
             self._crossentropyloss(x, y, ignore_index)
 
             x = torch.randn(3, 5, 2, 7)
+            y = torch.empty(3, 2, 7, dtype=torch.long).random_(5)
+            y[y == 1] = ignore_index
+            self._crossentropyloss(x, y, ignore_index)
+      
+    @skipIfUnsupportedMinOpsetVersion(13)
+    @disableScriptTest()  # shape/type inference
+    def test_crossentropyloss_bfloat16(self):
+        for ignore_index in [-100, 1]:
+            x = torch.randn(3, 5, dtype=torch.bfloat16)
+            y = torch.empty(3, dtype=torch.long).random_(5)
+            y[y == 1] = ignore_index
+            self._crossentropyloss(x, y, ignore_index)
+
+            x = torch.randn(3, 5, 2, dtype=torch.bfloat16)
+            y = torch.empty(3, 2, dtype=torch.long).random_(5)
+            y[y == 1] = ignore_index
+            self._crossentropyloss(x, y, ignore_index)
+
+            x = torch.randn(3, 5, 2, 7, dtype=torch.bfloat16)
             y = torch.empty(3, 2, 7, dtype=torch.long).random_(5)
             y[y == 1] = ignore_index
             self._crossentropyloss(x, y, ignore_index)
@@ -4786,7 +4804,6 @@ class TestONNXRuntime(unittest.TestCase):
 
         self.run_test(KLDivLossMiniBatchMean(), input=(x, y))
 
-    @skipIfUnsupportedOpsetVersion([13])
     @skipIfUnsupportedMinOpsetVersion(12)
     @disableScriptTest()  # shape/type inference
     def test_nllloss(self):

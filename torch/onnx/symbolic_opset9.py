@@ -186,8 +186,11 @@ def cat(g, tensor_list, dim):
 
 @parse_args('v', 'i')
 def stack(g, tensor_list, dim):
-    unsqueezed = [sym_help._unsqueeze_helper(g, t, [dim]) for t in sym_help._unpack_list(tensor_list)]
-    return g.op("Concat", *unsqueezed, axis_i=dim)
+    if (sym_help._is_packed_list(tensor_list)):
+        unsqueezed = [sym_help._unsqueeze_helper(g, t, [dim]) for t in sym_help._unpack_list(tensor_list)]
+        return g.op("Concat", *unsqueezed, axis_i=dim)
+    else:
+        return g.op("Concat", tensor_list, axis_i=dim)
 
 
 def _list(g, self):

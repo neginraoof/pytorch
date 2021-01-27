@@ -6547,23 +6547,6 @@ TestONNXRuntime_opset13 = type(str("TestONNXRuntime_opset13"),
                                     keep_initializers_as_inputs=False,
                                     onnx_shape_inference=True))
 
-# opset 9 tests, with use_new_jit_passes=True for using new jit API,
-# and with keep_initializers_as_inputs=False for IR version 4 style export.
-TestONNXRuntime_opset9_IRv4_old_jit_API = type(str("TestONNXRuntime_opset9_IRv4_old_jit_API"),
-                                               (unittest.TestCase,),
-                                               dict(TestONNXRuntime.__dict__,
-                                                    keep_initializers_as_inputs=False,
-                                                    use_new_jit_passes=False))
-
-
-# opset 12 tests, with use_new_jit_passes=True for using new jit API,
-# and keep_initializers_as_inputs=False for IR version 4 style export.
-TestONNXRuntime_opset12_IRv4_old_jit_API = type(str("TestONNXRuntime_opset12_IRv4_old_jit_API"),
-                                                (unittest.TestCase,),
-                                                dict(TestONNXRuntime.__dict__, opset_version=12,
-                                                     keep_initializers_as_inputs=False,
-                                                     use_new_jit_passes=False))
-
 
 # opset 12 tests, with _onnx_shape_inference=True.
 TestONNXRuntime_opset12_onnx_shape_inference = type(str("TestONNXRuntime_opset12_onnx_shape_inference"),

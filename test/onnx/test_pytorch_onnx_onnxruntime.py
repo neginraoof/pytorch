@@ -6155,6 +6155,46 @@ class TestONNXRuntime(unittest.TestCase):
         [np.testing.assert_allclose(p_out, ort_out, atol=10e-3, rtol=10e-3) for p_out, ort_out in
          zip(pytorch_out, ort_outs)]
 
+    def test_batchnorm_eval_fixed_training_layer(self):
+        class MyModule(torch.nn.Module):
+            def __init__(self):
+                super(MyModule, self).__init__()
+                self.bn1 = torch.nn.BatchNorm2d(3, affine=True)
+                self.cv1 = torch.nn.Conv2d(3, 3, 10)
+                self.bn2 = torch.nn.BatchNorm2d(3, affine=False)
+                self.cv2 = torch.nn.Conv2d(3, 3, 10)
+                self.bn3 = torch.nn.BatchNorm2d(3, affine=True)
+
+            def forward(self, x):
+                self.bn3.train()
+                x = self.bn1(x)
+                x = self.cv1(x)
+                x = self.bn2(x)
+                x = self.cv2(x)
+                x = self.bn3(x)
+                return x
+
+        x = torch.randn(10, 3, 128, 128)
+
+        model_export = MyModule()
+        model_export.eval()
+        outs = model_export(x)
+        pytorch_out = [outs.detach()]
+
+        ort_sess = convert_to_onnx(model_export, input=(x,), opset_version=self.opset_version,
+                                   training=torch.onnx.TrainingMode.EVAL)
+        ort_outs = run_ort(ort_sess, input=(x,))
+        assert len(pytorch_out) == len(ort_outs)
+        [np.testing.assert_allclose(p_out, ort_out, atol=10e-3, rtol=10e-3) for p_out, ort_out in
+         zip(pytorch_out, ort_outs)]
+
+        ort_sess = convert_to_onnx(model_export, input=(x,), opset_version=self.opset_version,
+                                   training=torch.onnx.TrainingMode.PRESERVE)
+        ort_outs = run_ort(ort_sess, input=(x,))
+        assert len(pytorch_out) == len(ort_outs)
+        [np.testing.assert_allclose(p_out, ort_out, atol=10e-3, rtol=10e-3) for p_out, ort_out in
+         zip(pytorch_out, ort_outs)]
+
     @skipIfUnsupportedMinOpsetVersion(12)
     def test_dropout_training(self):
         class MyModule(torch.nn.Module):
@@ -6252,24 +6292,50 @@ class TestONNXRuntime(unittest.TestCase):
         ort_sess1 = convert_to_onnx(model, input=(x,), opset_version=self.opset_version,
                                     training=torch.onnx.TrainingMode.TRAINING)
         ort_outs1 = run_ort(ort_sess1, input=(x,))
+        pt_outs1 = model(x)
+        [np.testing.assert_allclose(ort_out1, pt_out1.detach(), atol=1e-4, rtol=0.001) for ort_out1, pt_out1 in
+         zip(ort_outs1, [pt_outs1])]
+
         ort_sess2 = convert_to_onnx(model, input=(x,), opset_version=self.opset_version,
                                     training=torch.onnx.TrainingMode.EVAL)
         ort_outs2 = run_ort(ort_sess2, input=(x,))
-        [np.testing.assert_allclose(ort_out1, ort_out2, atol=1e-7, rtol=0.001) for ort_out1, ort_out2 in
-         zip(ort_outs1, ort_outs2)]
+        model.eval()
+        pt_outs2 = model(x)
+        [np.testing.assert_allclose(ort_out2, pt_out2.detach(), atol=1e-4, rtol=0.001) for ort_out2, pt_out2 in
+         zip(ort_outs2, [pt_outs2])]
 
+    @unittest.skip("Disable due to missing shape of Conv op output as BN input")
+    def test_conv_bn_scripting(self):
+        class MyModule(torch.nn.Module):
+            def __init__(self):
+                super(MyModule, self).__init__()
+                self.conv = torch.nn.Conv2d(3, 16, kernel_size=1, stride=2, padding=3, bias=True)
+                self.bn = torch.nn.BatchNorm2d(16, affine=True)
+
+            def forward(self, x):
+                x = self.conv(x)
+                bn = self.bn(x)
+                return bn
+
+        model = MyModule()
+        x = torch.randn(10, 3, 128, 128)
+        model.train()
         script_model = torch.jit.script(model)
-        outputs = model(x)
+        pt_outs1 = script_model(x)
         ort_sess1 = convert_to_onnx(script_model, input=(x,), opset_version=self.opset_version,
-                                    example_outputs=outputs,
+                                    example_outputs=pt_outs1,
                                     training=torch.onnx.TrainingMode.TRAINING)
         ort_outs1 = run_ort(ort_sess1, input=(x,))
+        [np.testing.assert_allclose(ort_out1, pt_out1.detach(), atol=1e-4, rtol=0.001) for ort_out1, pt_out1 in
+         zip(ort_outs1, [pt_outs1])]
+
+        script_model.eval()
         ort_sess2 = convert_to_onnx(script_model, input=(x,), opset_version=self.opset_version,
-                                    example_outputs=outputs,
+                                    example_outputs=pt_outs2,
                                     training=torch.onnx.TrainingMode.EVAL)
         ort_outs2 = run_ort(ort_sess2, input=(x,))
-        [np.testing.assert_allclose(ort_out1, ort_out2, atol=1e-7, rtol=0.001) for ort_out1, ort_out2 in
-         zip(ort_outs1, ort_outs2)]
+        [np.testing.assert_allclose(ort_out2, pt_out2.detach(), atol=1e-4, rtol=0.001) for ort_out2, pt_out2 in
+         zip(ort_outs2, [pt_outs2])]
 
     def test_multiple_conv_bn(self):
         class MyModule(torch.nn.Module):
@@ -6301,11 +6367,63 @@ class TestONNXRuntime(unittest.TestCase):
         ort_sess1 = convert_to_onnx(model, input=(x,), opset_version=self.opset_version,
                                     training=torch.onnx.TrainingMode.TRAINING)
         ort_outs1 = run_ort(ort_sess1, input=(x,))
+        pt_outs1 = model(x)
+        [np.testing.assert_allclose(ort_out1, pt_out1.detach(), atol=1e-4, rtol=0.001) for ort_out1, pt_out1 in
+         zip(ort_outs1, [pt_outs1])]
+
         ort_sess2 = convert_to_onnx(model, input=(x,), opset_version=self.opset_version,
                                     training=torch.onnx.TrainingMode.EVAL)
         ort_outs2 = run_ort(ort_sess2, input=(x,))
-        [np.testing.assert_allclose(ort_out1, ort_out2, atol=1e-7, rtol=0.001) for ort_out1, ort_out2 in
-         zip(ort_outs1, ort_outs2)]
+        model.eval()
+        pt_outs2 = model(x)
+        [np.testing.assert_allclose(ort_out2, pt_out2.detach(), atol=1e-4, rtol=0.001) for ort_out2, pt_out2 in
+         zip(ort_outs2, [pt_outs2])]
+
+    @unittest.skip("Disable due to missing shape of Conv op output as BN input")
+    def test_multiple_conv_bn_scripting(self):
+        class MyModule(torch.nn.Module):
+            def __init__(self):
+                super(MyModule, self).__init__()
+                self.conv1 = torch.nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+                self.conv2 = torch.nn.Conv2d(64, 2, kernel_size=1, stride=1, padding=0, bias=False)
+                self.conv3 = torch.nn.Conv2d(2, 2, kernel_size=3, stride=1, padding=1, bias=False)
+                self.bn = torch.nn.BatchNorm2d(64)
+                self.bn2 = torch.nn.BatchNorm2d(2)
+                self.relu = torch.nn.ReLU(inplace=True)
+                self.maxpool = torch.nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+
+            def forward(self, x):
+                x = self.conv1(x)
+                x = self.bn(x)
+                x = self.relu(x)
+                x = self.maxpool(x)
+                x = self.conv2(x)
+                x = self.bn2(x)
+                x = self.relu(x)
+                x = self.conv3(x)
+                x = self.bn2(x)
+                x = self.relu(x)
+                return x
+
+        model = MyModule()
+        x = torch.randn(2, 3, 224, 224)
+        script_model = torch.jit.script(model)
+        ort_sess1 = convert_to_onnx(script_model, input=(x,), opset_version=self.opset_version,
+                                    training=torch.onnx.TrainingMode.TRAINING)
+        ort_outs1 = run_ort(ort_sess1, input=(x,))
+        pt_outs1 = script_model(x)
+        [np.testing.assert_allclose(ort_out1, pt_out1.detach(), atol=1e-4, rtol=0.001) for ort_out1, pt_out1 in
+         zip(ort_outs1, [pt_outs1])]
+
+        model.eval()
+        script_model = torch.jit.script(model)
+        ort_sess2 = convert_to_onnx(script_model, input=(x,), opset_version=self.opset_version,
+                                    training=torch.onnx.TrainingMode.EVAL)
+        ort_outs2 = run_ort(ort_sess2, input=(x,))
+        script_model = torch.jit.script(model)
+        pt_outs2 = script_model(x)
+        [np.testing.assert_allclose(ort_out2, pt_out2.detach(), atol=1e-4, rtol=0.001) for ort_out2, pt_out2 in
+         zip(ort_outs2, [pt_outs2])]
 
     def test_script_custom_class_error(self):
         class BoxCoder(object):

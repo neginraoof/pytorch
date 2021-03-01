@@ -6095,7 +6095,7 @@ class TestONNXRuntime(unittest.TestCase):
         pytorch_out = [out.detach().numpy() for out in outs]
         ort_sess = convert_to_onnx(model_export, input=(x,), opset_version=self.opset_version, example_outputs=outs,
                                    training=torch.onnx.TrainingMode.TRAINING,
-                                   onnx_shape_inference = True)
+                                   onnx_shape_inference=True)
 
         ort_outs = run_ort(ort_sess, input=(x,))
         assert len(pytorch_out) == len(ort_outs)

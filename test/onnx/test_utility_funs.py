@@ -789,7 +789,9 @@ class TestUtilityFuns(TestCase):
                 return self.bn(out)
 
         x = torch.randn(2, 3, 2, 2, requires_grad=True)
-        graph, _, __ = self._model_to_graph(Fuse(), (x, ),
+        model = Fuse()
+        model.eval()
+        graph, _, __ = self._model_to_graph(model, (x, ),
                                             training=TrainingMode.EVAL)
         for node in graph.nodes():
             assert node.kind() != "onnx::BatchNormalization"
@@ -800,6 +802,7 @@ class TestUtilityFuns(TestCase):
     def test_fuse_resnet18(self):
         model = torchvision.models.resnet18(pretrained=True)
         x = torch.randn(2, 3, 224, 224, requires_grad=True)
+        model.eval()
         graph, _, __ = self._model_to_graph(model, (x, ))
 
         for node in graph.nodes():

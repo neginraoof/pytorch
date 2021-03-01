@@ -669,7 +669,7 @@ def _avgpool_helper(tuple_fn, padding, kernel_size, stride, divisor_override, na
 def check_training_mode(op_mode, op_name):
     global _training_mode
     op_mode = True if op_mode == 1 else False
-    if op_mode != _training_mode:
+    if _training_mode is not None and op_mode != _training_mode:
         op_mode = "training " if op_mode else "inference"
         training_mode = "training " if _training_mode else "inference"
         # setting the model mode could result in op_mode != _training_mode
